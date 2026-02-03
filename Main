@@ -1,0 +1,108 @@
+#include <ESP8266WiFi.h>
+#include <BlynkSimpleEsp8266.h>
+#include <DHT.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_ST7735.h>
+#include <SPI.h>
+
+// Định nghĩa chân SPI cho ST7735
+#define TFT_CS   D8
+#define TFT_RST  D0
+#define TFT_DC   D3
+
+Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
+
+char auth[] = BLYNK_AUTH_TOKEN;
+char ssid[] = "YOUR_WIFI_NAME";
+char pass[] = "YOUR_WIFI_PASSWORD";
+
+#define DHTPIN 4
+#define DHTTYPE DHT11
+DHT dht(DHTPIN, DHTTYPE);
+
+int gasPin = A0;
+BlynkTimer timer;
+
+void updateDisplay() {
+  float h = dht.readHumidity();
+  float t = dht.readTemperature();
+  int gasValue = analogRead(gasPin);
+
+  tft.setTextWrap(false);
+  tft.setTextSize(1);
+
+  // Khu vực Nhiệt độ
+  tft.setCursor(5, 25);
+  tft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
+  tft.printf("Temp:  %.1f C   ", t);
+
+  // Khu vực Độ ẩm
+  tft.setCursor(5, 45);
+  tft.setTextColor(ST77XX_MAGENTA, ST77XX_BLACK);
+  tft.printf("Humid: %.1f %%   ", h);
+
+  // Khu vực Gas
+  tft.setCursor(5, 70);
+  tft.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
+  tft.print("Gas Value: ");
+  tft.print(gasValue);
+  tft.print("    "); // Xóa số thừa khi giá trị giảm từ 1000 xuống 999
+
+  // Cảnh báo chất lượng không khí
+  tft.setCursor(5, 95);
+  tft.setTextSize(2);
+  if (gasValue < 600) {
+    tft.setTextColor(ST77XX_GREEN, ST77XX_BLACK);
+    tft.print("AIR: GOOD ");
+  } else {
+    tft.setTextColor(ST77XX_RED, ST77XX_BLACK);
+    tft.print("AIR: BAD! ");
+  }
+}
+
+void sendSensorData() {
+  float h = dht.readHumidity();
+  float t = dht.readTemperature();
+  int gasValue = analogRead(gasPin);
+
+  if (Blynk.connected()) { // Chỉ gửi khi đã kết nối Blynk
+    if (!isnan(h) && !isnan(t)) {
+      Blynk.virtualWrite(V0, t);
+      Blynk.virtualWrite(V1, h);
+      Blynk.virtualWrite(V2, gasValue);
+
+      if (gasValue > 600) {
+        Blynk.logEvent("pollution_alert", "Warning: Bad Air!");
+      }
+    }
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  
+  // Khởi tạo màn hình TRƯỚC khi kết nối Blynk
+  tft.initR(INITR_BLACKTAB);
+  tft.setRotation(1);
+  tft.fillScreen(ST77XX_BLACK);
+  
+  // Vẽ khung cố định
+  tft.drawRect(0, 0, 160, 128, ST77XX_WHITE);
+  tft.setCursor(25, 5);
+  tft.setTextColor(ST77XX_YELLOW);
+  tft.print("SMART AIR MONITOR");
+
+  // Kết nối WiFi và Blynk (Dùng config để không bị treo màn hình nếu lỗi mạng)
+  WiFi.begin(ssid, pass);
+  Blynk.config(auth); 
+  
+  dht.begin();
+
+  timer.setInterval(2000L, updateDisplay);   
+  timer.setInterval(1000L, sendSensorData); 
+}
+
+void loop() {
+  Blynk.run();
+  timer.run();
+}
